@@ -31,14 +31,17 @@ export default class SmarterHotkeys extends Plugin {
 		this.engine = new TextTransformer();
 
 		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'smarter-bold2',
-			name: 'Bold2',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.engine.setEditor(editor);
-				this.engine.transformText("bold");
-			}
-		});
+		for (const _op of Object.keys(TextTransformOperations)) {
+			const op = _op as ValidOperations;
+			this.addCommand({
+				id: 'smarter-' + op,
+				name: `Toggle Smarter ${op}`,
+				editorCallback: (editor: Editor) => {
+					this.engine.setEditor(editor);
+					this.engine.transformText(op);
+				}
+			});
+		}
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new SampleSettingTab(this.app, this));
