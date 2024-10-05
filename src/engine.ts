@@ -52,8 +52,13 @@ export class TextTransformer {
 		// inlineMath: { start: '$', end: '$' },
 	};
 	currentOperation: ValidOperations;
+	trimBeforeRegexes: RegExp[] = [];
+	trimAfterRegexes: RegExp[] = [];
 	
-	constructor() { }
+	constructor() {
+		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + x));
+		this.trimAfterRegexes = trimAfter.map(x => new RegExp(x + "$"));
+	}
 
 	setEditor(editor: Editor) {
 		this.editor = editor;
@@ -119,6 +124,34 @@ export class TextTransformer {
 			return this.getSmartSelectionBare();
 		}
 	}
+	/** trim the selection to not include stuff we don't want */
+	trimSmartSelection(sel: Range) {
+		let from = sel.from;
+		let to = sel.to;
+
+		const startLine = this.editor.getLine(sel.from.line);
+		const endLine = this.editor.getLine(sel.to.line);
+
+		for (const regex of this.trimBeforeRegexes) {
+			const match = startLine.slice(
+				from.ch, 
+				from.line === to.line ? to.ch : startLine.length
+			).match(regex);
+
+			if (match) from.ch = from.ch + match[0].length;
+		}
+		for (const regex of this.trimAfterRegexes) {
+			const match = endLine.slice(
+				from.line === to.line ? from.ch : 0,
+				to.ch, 
+			).match(regex);
+
+			if (match) to.ch = to.ch - match[0].length;
+		}
+
+		return { from, to } satisfies Range as Range;
+	}
+
 	/** get the Range of the smart selection created by expanding from cursor*/
 	getSmartSelectionBare() {
 		const cursor = this.editor.getCursor("anchor");
@@ -136,12 +169,13 @@ export class TextTransformer {
 			to: { line: cursor.line, ch: end },
 		} satisfies Range as Range;
 	}
-	
+
 	/** get the Range of the smart selection created by expanding the current one*/
 	getSmartSelectionRange() {
 		const startCursor = this.editor.getCursor("from");
 		const endCursor = this.editor.getCursor("to");
 
+		// chunks of selection before the start cursor & after the end cursor, string value
 		const startLine = this.editor.getLine(startCursor.line);
 		const endLine = this.editor.getLine(endCursor.line);
 
