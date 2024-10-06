@@ -343,7 +343,7 @@ export class TextTransformer {
 	calculateOffsets(modification: 'apply' | 'remove', prefix: string, suffix: string, customBase?: number) {
 		// usually, we want the offset to be prefix/suffix, but for some special cases we might want to provide a custom base
 		let pre = customBase ?? prefix.length;
-		let post = customBase ?? suffix.length;
+		let post = customBase ?? prefix.length; // we're shifting to the right by prefix
 
 		if (modification === 'remove') {
 			pre = pre * -1;
