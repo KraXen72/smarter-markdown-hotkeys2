@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { TextTransformer } from './engine';
 
 // Remember to rename these classes and interfaces!
@@ -11,16 +11,18 @@ const DEFAULT_SETTINGS: SmarterHotkeysSettings = {
 	mySetting: 'default'
 }
 
-export const TextTransformOperations = {
-	bold: "**",
-	highlight: "==",
-	italics: "*",
-	inlineCode: "`",
-	comment: "%%",
-	strikethrough: "~~"
-} as const;
-export type ValidOperations = keyof typeof TextTransformOperations;
-export type validOperationMarkers = typeof TextTransformOperations[ValidOperations];
+const TextTransformOperations = [
+  "bold",
+  "highlight",
+  "italics",
+  "inlineCode",
+  "comment",
+  "strikethrough",
+	"underscore",
+	"inlineMath"
+] as const;
+
+export type ValidOperations = typeof TextTransformOperations[number];
 
 export default class SmarterHotkeys extends Plugin {
 	settings: SmarterHotkeysSettings;
@@ -31,7 +33,7 @@ export default class SmarterHotkeys extends Plugin {
 		this.engine = new TextTransformer();
 
 		// This adds an editor command that can perform some operation on the current editor instance
-		for (const _op of Object.keys(TextTransformOperations)) {
+		for (const _op of TextTransformOperations) {
 			const op = _op as ValidOperations;
 			this.addCommand({
 				id: 'smarter-' + op,

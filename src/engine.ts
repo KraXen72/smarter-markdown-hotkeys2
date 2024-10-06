@@ -1,5 +1,5 @@
-import { validOperationMarkers, ValidOperations } from "./main";
-import { base64ToArrayBuffer, Editor, EditorPosition } from "obsidian";
+import type { ValidOperations } from "./main";
+import { Editor, EditorPosition } from "obsidian";
 
 
 interface StyleConfig {
@@ -39,7 +39,7 @@ const trimAfter = [
 ];
 
 // for now, you have to manually update these
-const reg_char = "(\\w|\\*|(?:==)|`|(?:%%)|(?:~~)|\\(|\\))"; // characters considered word and not split on
+const reg_char = "([a-zA-Z0-9]|\\*|(?:==)|`|(?:%%)|(?:~~)|\\(|\\))"; // characters considered word
 const reg_before = new RegExp(reg_char + "*$");
 const reg_after = new RegExp("^" + reg_char + "*");
 
@@ -56,28 +56,29 @@ export class TextTransformer {
 		inlineCode: { start: '`', end: '`' },
 		comment: { start: '%%', end: '%%' },
 		strikethrough: { start: '~~', end: '~~' },
-		// underscore: { start: '<u>', end: '</u>' },
-		// inlineMath: { start: '$', end: '$' },
+		underscore: { start: '<u>', end: '</u>' },
+		inlineMath: { start: '$', end: '$' },
 	};
-	currentOperation: ValidOperations;
+	/** dynamically created array of regexes to trim from the start of our selection */
 	trimBeforeRegexes: RegExp[] = [];
+	/** dynamically created array of regexes to trim from the end of our selection */
 	trimAfterRegexes: RegExp[] = [];
 
 	// if we trim in trimSmartSelection, we need to accout for that
-	// when restoring the selection position
+	// when restoring the selection position, so restored selection looks proper
 	trimmedBeforeLength: number = 0;
 	trimmedAfterLength: number = 0;
 	
 	constructor() {
+		// the order of the regexes matters, since longer ones should be checked first (- [ ] before -)
 		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + escapeRegExp(x)));
 		this.trimBeforeRegexes.splice(8, 0, /- \[\S\] /); // checked & custom checked checkboxes
 		this.trimBeforeRegexes.splice(6, 0, /> \[!\w+\] /); // callouts 
-		console.log(reg_before, reg_after)
-		console.log(this.trimBeforeRegexes);
+		// console.log(reg_before, reg_after)
+		// console.log(this.trimBeforeRegexes);
 
 		this.trimAfterRegexes = trimAfter.map(x => new RegExp(escapeRegExp(x) + "$"));
 	}
-
 
 	setEditor(editor: Editor) {
 		this.editor = editor;
@@ -180,7 +181,7 @@ export class TextTransformer {
 		return { from, to } satisfies Range as Range;
 	}
 	
-	/** trim the selection (string) to not include stuff we don't want */
+	/** trim a selection (string) to not include stuff we don't want */
 	trimNormalSelection(sel: string) {
 		let sel2 = sel;
 		for (const regex of this.trimBeforeRegexes) {
@@ -212,7 +213,7 @@ export class TextTransformer {
 		// chunks of selection before & after cursor, string value
 		const before = (lineText.slice(0, cursor.ch).match(reg_before) || [""])[0];
 		const after = (lineText.slice(cursor.ch).match(reg_after) || [""])[0];
-
+		
 		const start = cursor.ch - before.length;
 		const end = cursor.ch + after.length;
 		
@@ -234,11 +235,12 @@ export class TextTransformer {
 		const startLine = this.editor.getLine(startCursor.line);
 		const endLine = this.editor.getLine(endCursor.line);
 
-		// pre-trim whitespace
+		// pre-trim whitespace (fix up selection)
 		const corrected = this.whitespacePretrim({ from: startCursor, to: endCursor });
 		startCursor = corrected.from;
 		endCursor = corrected.to;
 		
+		// find parts where the selection should be expanded to
 		const before = (startLine.slice(0, startCursor.ch).match(reg_before) || [""])[0];
 		const after = (endLine.slice(endCursor.ch).match(reg_after) || [""])[0];
 
@@ -255,11 +257,12 @@ export class TextTransformer {
 		sel.from.ch += post_whitespaceBefore.length;
 		sel.to.ch -= post_whitespaceAfter.length;
 		
-		// trim selectio of stuff we don't want if trim is true
+		// trim selection of stuff we don't want, if trim is true
 		if (trim) sel = this.trimSmartSelection(sel);
 		return sel as Range;
 	}
 
+	/** get an offset cursor */
 	offsetCursor(cursor: EditorPosition, offset: number) {
 		const offsetValue = cursor.ch + offset;
 		if (offsetValue < 0) return { line: cursor.line, ch: 0 };
@@ -267,48 +270,63 @@ export class TextTransformer {
 		return { line: cursor.line, ch: offsetValue };
 	}
 
+	/** calculate the offset when restoring the cursor / selection */
+	calculateOffsets(sel: Range, modification: 'apply' | 'remove', prefix: string, suffix: string, customBase?: number) {
+		// usually, we want the offset to be prefix/suffix, but for some special cases we might want to provide a custom base
+		let pre = customBase ?? prefix.length;
+		let post = customBase ?? suffix.length;
+
+		if (modification === 'remove') {
+			pre = pre * -1;
+			post = post * -1;
+		}
+		pre -= this.trimmedBeforeLength;
+		post += this.trimmedAfterLength;
+		return { pre, post };
+	}
+
+	/** either apply or remove a style */
 	#modifySelection(sel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
 		const prefix = this.styleConfig[op].start;
 		const suffix = this.styleConfig[op].end;
 
 		// used when restoring previous cursor / selection position
 		// account for any whitespace we trimmed in cursor position
-		let offset = prefix.length;
-		let offset2 = suffix.length;
-
-		// if (sel.from.line === sel.to.line) offset2 += prefix.length; 
-		if (modification === 'remove') {
-			offset = offset * -1;
-			offset2 = offset2 * -1;
-		}
-
-		offset -= this.trimmedBeforeLength;
-		offset2 += this.trimmedAfterLength;
+		const offsets = this.calculateOffsets(sel, modification, prefix, suffix);
 
 		if (isSelection) {
+			// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 			const selection: Range = this.whitespacePretrim({ 
 				from: this.editor.getCursor('from'), 
 				to: this.editor.getCursor('to') 
 			});
 
+			const originalSel = this.editor.getSelection();
 			this.editor.setSelection(sel.from, sel.to); // set to expanded selection
 			const selVal = this.editor.getSelection(); // get new content
 
 			const newVal = modification === 'apply'
-				? prefix + selVal + suffix
-				: selVal
+				? prefix + selVal + suffix // add style
+				: selVal // remove style
 					.replace(new RegExp("^" + escapeRegExp(suffix)), "")
 					.replace(new RegExp(escapeRegExp(prefix) + "$"), "");
 
-			this.editor.replaceSelection(newVal);
-
-			const restoreSel = {
-				from: this.offsetCursor(selection.from, offset),
-				to: this.offsetCursor(selection.to, offset2),
+			this.editor.replaceSelection(newVal); // replace the actual string in the editor
+			
+			// cleanly restore a 'remove' selection like |**bold**| to |bold|
+			if (originalSel === selVal && modification === 'remove') {
+				const offsets2 = this.calculateOffsets(sel, modification, prefix, suffix, 0);
+				offsets2.post -= (prefix.length + suffix.length);
+				Object.assign(offsets, offsets2);
 			}
-			console.log(selection)
-			console.log(restoreSel);
-			this.editor.setSelection(restoreSel.from, restoreSel.to); // restore selection (offset by prefix)
+
+			// where should the new selection be?
+			const restoreSel = {
+				from: this.offsetCursor(selection.from, offsets.pre),
+				to: this.offsetCursor(selection.to, offsets.post),
+			}
+
+			this.editor.setSelection(restoreSel.from, restoreSel.to); 
 
 		} else {
 			const cursor = this.editor.getCursor("anchor"); // save cursor
@@ -319,7 +337,7 @@ export class TextTransformer {
 				: selVal.replace(prefix, "").replace(suffix, "");
 			this.editor.replaceRange(newVal, sel.from, sel.to);
 
-			this.editor.setCursor(this.offsetCursor(cursor, offset)); // restore cursor (offset by prefix)
+			this.editor.setCursor(this.offsetCursor(cursor, offsets.pre)); // restore cursor (offset by prefix)
 		}
 	}
 
