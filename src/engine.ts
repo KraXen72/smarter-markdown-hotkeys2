@@ -343,7 +343,11 @@ export class TextTransformer {
 	calculateOffsets(modification: 'apply' | 'remove', prefix: string, suffix: string, customBase?: number) {
 		// usually, we want the offset to be prefix/suffix, but for some special cases we might want to provide a custom base
 		let pre = customBase ?? prefix.length;
-		let post = customBase ?? prefix.length; // we're shifting to the right by prefix
+		let post = customBase ?? suffix.length; // we're shifting to the right by prefix
+
+		// TODO: fix this
+		// underscore, multiline: suffix = selects </u> as well, prefix, selects badly
+		// underscore, singleline: suffix = selects badly, prefix = selects correctly
 
 		if (modification === 'remove') {
 			pre = pre * -1;
@@ -399,7 +403,6 @@ export class TextTransformer {
 			}
 
 			this.editor.setSelection(restoreSel.from, restoreSel.to); 
-
 		} else {
 			const cursor = sel2.to; // save cursor
 			const selVal = this.editor.getRange(smartSel.from, smartSel.to)
