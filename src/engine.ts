@@ -64,27 +64,30 @@ function escapeRegExp(str: string) {
 }
 
 export class TextTransformer {
-	editor: Editor;
 	/** dynamically created array of regexes to trim from the start of our selection */
 	trimBeforeRegexes: RegExp[] = [];
 	/** dynamically created array of regexes to trim from the end of our selection */
 	trimAfterRegexes: RegExp[] = [];
-
+	
+	// state:
+	editor: Editor;
 	// if we trim in trimSmartSelection, we need to accout for that
 	// when restoring the selection position, so restored selection looks proper
 	trimmedBeforeLength: number = 0;
 	trimmedAfterLength: number = 0;
 
-	/** if we're currently handling a multi-selection */
-	multiSelection: boolean = false;
+	/** regex to get markers (only this operation type) before a selection */
+	startMarkerRegex: RegExp;
+	/** regex to get markers (only this operation type) after a selection */
+	endMarkerRegex: RegExp;
 	
 	constructor() {
 		// the order of the regexes matters, since longer ones should be checked first (- [ ] before -)
 		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + escapeRegExp(x)));
 		this.trimBeforeRegexes.splice(8, 0, /- \[\S\] /); // checked & custom checked checkboxes
 		this.trimBeforeRegexes.splice(6, 0, /> \[!\w+\] /); // callouts 
+		console.log(this.trimBeforeRegexes);
 		// console.log(reg_before, reg_after)
-		// console.log(this.trimBeforeRegexes);
 
 		this.trimAfterRegexes = trimAfter.map(x => new RegExp(escapeRegExp(x) + "$"));
 	}
@@ -107,21 +110,21 @@ export class TextTransformer {
 	transformText(op: ValidOperations, toggle = true) {
 		// get & copy all selections for multi-cursor/multi-selection operations
 		const selections = this.editor.listSelections().map(_sel => {
-			let sel = {
-				from: { line: _sel.anchor.line, ch: _sel.anchor.ch },
-				to: { line: _sel.head.line, ch: _sel.head.ch },
-			};
-
-			// selection was started from the back - reverse it
-			const { from, to } = this.swapCursorsIfNeeded(sel.from, sel.to);
-			sel.from = from;
-			sel.to = to;
-			return sel
+			const { from, to } = this.swapCursorsIfNeeded(
+				{ line: _sel.anchor.line, ch: _sel.anchor.ch }, 
+				{ line: _sel.head.line, ch: _sel.head.ch }
+			);
+			return { from: {...from}, to: {...to} } satisfies Range as Range;
 		});
 		console.log(selections)
 
 		for (let i = 0; i < selections.length; i++) {
 			const sel = selections[i];
+			this.trimmedBeforeLength = 0;
+			this.trimmedAfterLength = 0;
+			this.startMarkerRegex = new RegExp(`^${escapeRegExp(styleConfig[op].start)}*`);
+			this.endMarkerRegex = new RegExp(`${escapeRegExp(styleConfig[op].end)}*$`);
+
 			// remember original line lengths, so we can adjust the following selections
 			const originalFromLineLength = this.editor.getLine(sel.from.line).length;
 			const originalToLineLength = this.editor.getLine(sel.to.line).length;
@@ -136,29 +139,24 @@ export class TextTransformer {
 			// 	"smartSelVal:", this.editor.getRange(smartSel.from, smartSel.to)
 			// );
 	
-			this.trimmedBeforeLength = 0;
-			this.trimmedAfterLength = 0;
-			
+			// try removing styles first
 			let stylesRemoved = false;
 			if (this.insideStyle(checkSel, op) !== false) {
 				this.removeStyle(sel, checkSel, op, isSelection);
-				// console.log("removing styles: checkSel");
 				stylesRemoved = true;
 			} 
 			if (this.insideStyle(smartSel, op) !== false) {
 				this.removeStyle(sel, smartSel, op, isSelection);
-				// console.log("removing styles: trimmedSel");
 				stylesRemoved = true;
 			}
 	
 			// don't apply the style if we're only toggling and we just removed the style
 			if (!toggle || toggle && !stylesRemoved) {
 				const smartSel = this.getSmartSelection(sel, true);
-				// console.log("applying styles: " + op);
 				this.applyStyle(sel, smartSel, op, isSelection)
 			}
 
-			// adjust cursor offsets if they're on the same line
+			// adjust cursor positions if they're on the same line
 			for (let j = i + 1; j < selections.length; j++) {
 				const sel2 = selections[j];
 				this.updateSelectionOffsets(sel, sel2, sel.to, originalFromLineLength, originalToLineLength);
@@ -181,22 +179,6 @@ export class TextTransformer {
 			adjustSel.to.ch += diff;
 		}
 	}
-	
-	/** check if the selection is inside a style (all known styles) */
-	// isInsideAnyStyle(sel: Range) {
-	// 	let wrappedWith: ValidOperations | false = false;
-	// 	const start = this.editor.getLine(sel.from.line).slice(0, sel.from.ch);
-	// 	const end = this.editor.getLine(sel.to.line).slice(sel.to.ch);
-
-	// 	for (const opkey in styleConfig) {
-	// 		const operation = styleConfig[opkey as ValidOperations];
-	// 		if (start.startsWith(operation.start) && end.endsWith(operation.end)) {
-	// 			wrappedWith = opkey as ValidOperations;
-	// 			break;
-	// 		}
-	// 	}
-	// 	return wrappedWith;
-	// }
 
 	insideStyle(sel: Range, op: ValidOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
@@ -230,8 +212,7 @@ export class TextTransformer {
 			
 			if (match) {
 				from.ch = from.ch + match[0].length;
-				//  keep count of how many chars we trimmed
-				this.trimmedBeforeLength += match[0].length; 
+				this.trimmedBeforeLength += match[0].length; // keep count of how many chars we trimmed
 			}
 		}
 		for (const regex of this.trimAfterRegexes) {
@@ -242,29 +223,57 @@ export class TextTransformer {
 
 			if (match) {
 				to.ch = to.ch - match[0].length;
-				//  keep count of how many chars we trimmed
-				this.trimmedAfterLength += match[0].length;
+				this.trimmedAfterLength += match[0].length; // keep count of how many chars we trimmed
 			}
 		}
 		// console.log("after trimming", `'${this.editor.getRange(from, to)}'`);
 		return { from, to } satisfies Range as Range;
 	}
+
+	/** 
+	 * get 3 parts of a string: 
+	 * - stuff that would be trimmed before
+	 * - the actual selection
+	 * - stuff that would be trimmed after
+	 * 
+	 * used when applying/removing a style on multiple lines
+	 */
+	#trimStringWithParts(sel: string, trimWhitespace = true) {
+		let sel2 = sel;
+		let trimmedBefore = "";
+		let trimmedAfter = "";
+
+		// if we are trimming whitespace, we need to add whitespace trimming regexes
+		const preTrimRegexes = [...this.trimBeforeRegexes]
+		const postTrimRegexes = [...this.trimAfterRegexes]
+		if (trimWhitespace) {
+			preTrimRegexes.splice(0, 0, new RegExp("^\\s+"));
+			postTrimRegexes.splice(0, 0, new RegExp("\\s+$"));
+		}
+
+		for (const regex of preTrimRegexes) { // trim before & remember
+			const match = sel2.match(regex);
+			if (match) trimmedBefore += match[0];
+			sel2 = sel2.replace(regex, "");
+		}
+
+		for (const regex of postTrimRegexes) { // trim after & remember
+			const match = sel2.match(regex);
+			if (match) trimmedAfter += match[0];
+			sel2 = sel2.replace(regex, "");
+		}
+
+		return { trimmedBefore, result: sel2, trimmedAfter };
+	}
 	
 	/** trim a selection (string) to not include stuff we don't want */
-	trimNormalSelection(sel: string) {
-		let sel2 = sel;
-		for (const regex of this.trimBeforeRegexes) {
-			sel2 = sel2.replace(regex, "");
-		}
-		for (const regex of this.trimAfterRegexes) {
-			sel2 = sel2.replace(regex, "");
-		}
-		return sel2
+	trimString(sel: string) {
+		return this.#trimStringWithParts(sel, false).result;
 	}
 
 	// pre-trim whitespace (correct selection lmao)
 	whitespacePretrim(sel: Range) {
-		const selection = this.trimNormalSelection(this.editor.getRange(sel.from, sel.to));
+		const selection = this.trimString(this.editor.getRange(sel.from, sel.to));
 		const whitespaceBefore = (selection.match(/^\s+/) || [""])[0];
 		const whitespaceAfter = (selection.match(/\s+$/) || [""])[0];
 
@@ -348,8 +357,8 @@ export class TextTransformer {
 		const selection = this.editor.getRange(sel.from, sel.to)
 
 		const multiline = sel.from.line !== sel.to.line;
-		const includesMarkersStart = reg_marker_after.test(selection)
-		const includesMarkersEnd = reg_marker_before.test(selection);
+		const includesMarkersStart = this.startMarkerRegex.test(selection)
+		const includesMarkersEnd = this.endMarkerRegex.test(selection);
 		const modifMultiplier = modification === 'remove' ? -1 : 1;
 		
 		let pre = 0;
@@ -358,7 +367,7 @@ export class TextTransformer {
 		// see rules for restoring cursor position in my obsidian note for this plugin
 		if (!includesMarkersStart && !includesMarkersEnd) {
 			pre = prefix.length * modifMultiplier;
-			post = multiline ? 0 : prefix.length * modifMultiplier;
+			post = prefix.length * modifMultiplier;
 		} else {
 			if (includesMarkersStart && includesMarkersEnd) { // both markers included in selection
 				post = multiline ? -suffix.length : -(suffix.length + prefix.length)
@@ -370,20 +379,35 @@ export class TextTransformer {
 			}
 		}
 
-		// console.table({
-		// 	selection, pre,post,
-		// 	includesMarkersStart, includesMarkersEnd,
-		// 	multiline,
-		// 	bl: this.trimmedBeforeLength,
-		// 	al: this.trimmedAfterLength,
-		// });
+		console.table({
+			selection, pre,post,
+			includesMarkersStart, includesMarkersEnd,
+			multiline,
+			bl: this.trimmedBeforeLength,
+			al: this.trimmedAfterLength,
+		});
 
 		pre -= this.trimmedBeforeLength;
 		post += this.trimmedAfterLength;
 		return { pre, post };
 	}
 
-	/** either apply or remove a style */
+	/** either add apply or remove a style for a given string */
+	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', trim = false) {
+		const { trimmedBefore, result, trimmedAfter } = this.#trimStringWithParts(selVal);
+		if (trim) selVal = result;
+
+		let newVal = modification === 'apply'
+			? prefix + selVal + suffix // add style
+			: selVal
+				.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+				.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+			
+		if (trim) newVal = trimmedBefore + newVal + trimmedAfter;
+		return newVal;
+	}
+
+	/** either apply or remove a style for a given Range */
 	#modifySelection(original: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 		const sel2 = this.whitespacePretrim(original);
@@ -400,12 +424,11 @@ export class TextTransformer {
 		if (isSelection) {
 			this.editor.setSelection(smartSel.from, smartSel.to); // set to expanded selection
 			const selVal = this.editor.getSelection(); // get new content
+			const multiline = sel2.from.line !== sel2.to.line;
 
-			const newVal = modification === 'apply'
-				? prefix + selVal + suffix // add style
-				: selVal // remove style
-					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
-					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+			const newVal = multiline
+				? selVal.split("\n").map(line => this.#modifyLine(line, prefix, suffix, modification, true)).join("\n")
+				: this.#modifyLine(selVal, prefix, suffix, modification);
 
 			this.editor.replaceSelection(newVal); // replace the actual string in the editor
 
