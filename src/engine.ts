@@ -80,6 +80,8 @@ export class TextTransformer {
 	startMarkerRegex: RegExp;
 	/** regex to get markers (only this operation type) after a selection */
 	endMarkerRegex: RegExp;
+
+	inProgress: boolean = false;
 	
 	constructor() {
 		// the order of the regexes matters, since longer ones should be checked first (- [ ] before -)
@@ -108,6 +110,8 @@ export class TextTransformer {
 
 	/** main function to transform text */
 	transformText(op: ValidOperations, toggle = true) {
+		if (this.inProgress) return; // large operations (1/2+ of a note) can be slow, rather noop.
+		this.inProgress = true;
 		// get & copy all selections for multi-cursor/multi-selection operations
 		const selections = this.editor.listSelections().map(_sel => {
 			const { from, to } = this.swapCursorsIfNeeded(
@@ -161,6 +165,7 @@ export class TextTransformer {
 				this.updateSelectionOffsets(sel, sel2, sel.to, originalFromLineLength, originalToLineLength);
 			}
 		}
+		this.inProgress = false;
 	}
 
 	/** Update remaining selections after a style has been applied or removed, accounting for length changes */
