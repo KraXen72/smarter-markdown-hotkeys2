@@ -419,13 +419,13 @@ export class TextTransformer {
 			const selVal = this.editor.getSelection(); // get new content
 			const multiline = sel2.from.line !== sel2.to.line;
 
+			// apply for each line separately if the selection is multiline
 			const newVal = multiline
 				? selVal.split("\n").map(line => this.#modifyLine(line, prefix, suffix, modification, true)).join("\n")
 				: this.#modifyLine(selVal, prefix, suffix, modification);
 
 			this.editor.replaceSelection(newVal); // replace the actual string in the editor
 
-			// where should the new selection be?
 			const restoreSel = {
 				from: this.offsetCursor(sel2.from, offsets.pre),
 				to: this.offsetCursor(sel2.to, offsets.post),
