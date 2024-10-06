@@ -45,14 +45,14 @@ const styleConfig: Record<ValidOperations, StyleConfig> = {
 	inlineCode: { start: '`', end: '`' },
 	comment: { start: '%%', end: '%%' },
 	strikethrough: { start: '~~', end: '~~' },
-	// underscore: { start: '<u>', end: '</u>' },
+	underscore: { start: '<u>', end: '</u>' },
 	// inlineMath: { start: '$', end: '$' },
 };
 
 const debug = true;
 
 // for now, you have to manually update these
-const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)" // markers
+const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>" // markers
 const reg_char = `([a-zA-Z0-9]|${reg_marker_bare}|\\(|\\))`; // characters considered word
 
 const reg_before = new RegExp(`${reg_char}*$`);
@@ -84,8 +84,8 @@ export class TextTransformer {
 		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + escapeRegExp(x)));
 		this.trimBeforeRegexes.splice(8, 0, /- \[\S\] /); // checked & custom checked checkboxes
 		this.trimBeforeRegexes.splice(6, 0, /> \[!\w+\] /); // callouts 
-		console.log(reg_before, reg_after)
-		console.log(this.trimBeforeRegexes);
+		// console.log(reg_before, reg_after)
+		// console.log(this.trimBeforeRegexes);
 
 		this.trimAfterRegexes = trimAfter.map(x => new RegExp(escapeRegExp(x) + "$"));
 	}
@@ -141,19 +141,19 @@ export class TextTransformer {
 			let stylesRemoved = false;
 			if (this.insideStyle(checkSel, op) !== false) {
 				this.removeStyle(sel, checkSel, op, isSelection);
-				if (debug) console.log("removing styles: checkSel");
+				// console.log("removing styles: checkSel");
 				stylesRemoved = true;
 			} 
 			if (this.insideStyle(smartSel, op) !== false) {
 				this.removeStyle(sel, smartSel, op, isSelection);
-				if (debug) console.log("removing styles: trimmedSel");
+				// console.log("removing styles: trimmedSel");
 				stylesRemoved = true;
 			}
 	
 			// don't apply the style if we're only toggling and we just removed the style
 			if (!toggle || toggle && !stylesRemoved) {
 				const smartSel = this.getSmartSelection(sel, true);
-				if (debug) console.log("applying styles: " + op);
+				// console.log("applying styles: " + op);
 				this.applyStyle(sel, smartSel, op, isSelection)
 			}
 
@@ -218,7 +218,7 @@ export class TextTransformer {
 
 		const startLine = this.editor.getLine(sel.from.line);
 		const endLine = this.editor.getLine(sel.to.line);
-		if (debug) console.log("before trimming:", `'${this.editor.getRange(from, to)}'`);
+		// console.log("before trimming:", `'${this.editor.getRange(from, to)}'`);
 
 		for (const regex of this.trimBeforeRegexes) {
 			const match = startLine.slice(
@@ -244,7 +244,7 @@ export class TextTransformer {
 				this.trimmedAfterLength += match[0].length;
 			}
 		}
-		if (debug) console.log("after trimming", `'${this.editor.getRange(from, to)}'`);
+		// console.log("after trimming", `'${this.editor.getRange(from, to)}'`);
 		return { from, to } satisfies Range as Range;
 	}
 	
@@ -355,9 +355,9 @@ export class TextTransformer {
 	}
 
 	/** either apply or remove a style */
-	#modifySelection(sel: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
+	#modifySelection(original: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
-		const sel2 = this.whitespacePretrim(sel);
+		const sel2 = this.whitespacePretrim(original);
 
 		const prefix = styleConfig[op].start;
 		const suffix = styleConfig[op].end;
@@ -374,17 +374,23 @@ export class TextTransformer {
 			const newVal = modification === 'apply'
 				? prefix + selVal + suffix // add style
 				: selVal // remove style
-					.replace(new RegExp("^" + escapeRegExp(suffix)), "")
-					.replace(new RegExp(escapeRegExp(prefix) + "$"), "");
+					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+
+			console.log(modification, prefix, suffix, originalSel, selVal, newVal);
 
 			this.editor.replaceSelection(newVal); // replace the actual string in the editor
 			
 			// cleanly restore a 'remove' selection like |**bold**| to |bold|
 			if (originalSel === selVal && modification === 'remove') {
 				const offsets2 = this.calculateOffsets(modification, prefix, suffix, 0);
-				offsets2.post -= (prefix.length + suffix.length);
+				offsets2.post -= suffix.length;
+
+				// if the whole selection is on the same line, and we selected |**bold**|, shorten 'to' by both prefix and suffix
+				if (smartSel.from.line === smartSel.to.line) offsets2.post -= prefix.length;
 				Object.assign(offsets, offsets2);
 			}
+			console.log(sel2.from, sel2.to, offsets)
 
 			// where should the new selection be?
 			const restoreSel = {

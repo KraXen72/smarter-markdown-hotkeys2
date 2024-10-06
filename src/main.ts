@@ -18,7 +18,7 @@ const TextTransformOperations = [
   "inlineCode",
   "comment",
   "strikethrough",
-	// "underscore",
+	"underscore",
 	// "inlineMath"
 ] as const;
 
