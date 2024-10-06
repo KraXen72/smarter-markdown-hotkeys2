@@ -18,8 +18,8 @@ const TextTransformOperations = [
   "inlineCode",
   "comment",
   "strikethrough",
-	"underscore",
-	"inlineMath"
+	// "underscore",
+	// "inlineMath"
 ] as const;
 
 export type ValidOperations = typeof TextTransformOperations[number];

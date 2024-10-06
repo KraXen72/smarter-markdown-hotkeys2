@@ -56,8 +56,8 @@ export class TextTransformer {
 		inlineCode: { start: '`', end: '`' },
 		comment: { start: '%%', end: '%%' },
 		strikethrough: { start: '~~', end: '~~' },
-		underscore: { start: '<u>', end: '</u>' },
-		inlineMath: { start: '$', end: '$' },
+		// underscore: { start: '<u>', end: '</u>' },
+		// inlineMath: { start: '$', end: '$' },
 	};
 	/** dynamically created array of regexes to trim from the start of our selection */
 	trimBeforeRegexes: RegExp[] = [];
