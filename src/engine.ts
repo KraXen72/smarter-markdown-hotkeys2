@@ -162,14 +162,14 @@ export class TextTransformer {
 			// adjust cursor positions if they're on the same line
 			for (let j = i + 1; j < selections.length; j++) {
 				const sel2 = selections[j];
-				this.updateSelectionOffsets(sel, sel2, sel.to, originalFromLineLength, originalToLineLength);
+				this.updateSelectionOffsets(sel, sel2, originalFromLineLength, originalToLineLength);
 			}
 		}
 		this.inProgress = false;
 	}
 
 	/** Update remaining selections after a style has been applied or removed, accounting for length changes */
-	updateSelectionOffsets(currentSel: Range, adjustSel: Range, modifiedTo: EditorPosition, originalFromLineLength: number, originalToLineLength: number) {
+	updateSelectionOffsets(currentSel: Range, adjustSel: Range, originalFromLineLength: number, originalToLineLength: number) {
 		// if either the starting line or the ending line was modified, adjust the selection
 
 		if (adjustSel.from.line === currentSel.from.line) { // the 'from' line was modified, adjust it
@@ -390,8 +390,8 @@ export class TextTransformer {
 		if (trim) selVal = result;
 
 		let newVal = modification === 'apply'
-			? prefix + selVal + suffix // add style
-			: selVal
+			? prefix + selVal + suffix
+			: selVal 
 				.replace(new RegExp("^" + escapeRegExp(prefix)), "")
 				.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
 			
