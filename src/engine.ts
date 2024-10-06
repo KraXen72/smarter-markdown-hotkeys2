@@ -49,7 +49,6 @@ const styleConfig: Record<ValidOperations, StyleConfig> = {
 	// inlineMath: { start: '$', end: '$' },
 };
 
-const debug = true;
 
 // for now, you have to manually update these
 const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>" // markers
@@ -57,8 +56,8 @@ const reg_char = `([a-zA-Z0-9]|${reg_marker_bare}|\\(|\\))`; // characters consi
 
 const reg_before = new RegExp(`${reg_char}*$`);
 const reg_after = new RegExp(`^${reg_char}*`);
-const reg_marker_before = new RegExp(`(${reg_marker_bare})*$`);
-const reg_marker_after = new RegExp(`^(${reg_marker_bare})*`);
+const reg_marker_before = new RegExp(`(${reg_marker_bare})+$`);
+const reg_marker_after = new RegExp(`^(${reg_marker_bare})+`);
 
 function escapeRegExp(str: string) {
 	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
@@ -119,8 +118,10 @@ export class TextTransformer {
 			sel.to = to;
 			return sel
 		});
+		console.log(selections)
 
-		for (const sel of selections) {
+		for (let i = 0; i < selections.length; i++) {
+			const sel = selections[i];
 			// remember original line lengths, so we can adjust the following selections
 			const originalFromLineLength = this.editor.getLine(sel.from.line).length;
 			const originalToLineLength = this.editor.getLine(sel.to.line).length;
@@ -158,7 +159,8 @@ export class TextTransformer {
 			}
 
 			// adjust cursor offsets if they're on the same line
-			for (const sel2 of selections) {
+			for (let j = i + 1; j < selections.length; j++) {
+				const sel2 = selections[j];
 				this.updateSelectionOffsets(sel, sel2, sel.to, originalFromLineLength, originalToLineLength);
 			}
 		}
@@ -295,7 +297,7 @@ export class TextTransformer {
 
 	/** get the Range of the smart selection created by expanding the current one*/
 	getSmartSelectionRange(original: Range, trim: boolean) {
-		const { from, to } = this.swapCursorsIfNeeded(original.from, original.to);
+		const { from, to } = this.swapCursorsIfNeeded({...original.from}, {...original.to});
 		let startCursor = from;
 		let endCursor = to;
 		
@@ -335,24 +337,47 @@ export class TextTransformer {
 	offsetCursor(cursor: EditorPosition, offset: number) {
 		const offsetValue = cursor.ch + offset;
 		if (offsetValue < 0) return { line: cursor.line, ch: 0 };
-		if (offsetValue > this.editor.getLine(cursor.line).length) return { line: cursor.line, ch: this.editor.getLine(cursor.line).length };
+		if (offsetValue > this.editor.getLine(cursor.line).length) {
+			return { line: cursor.line, ch: this.editor.getLine(cursor.line).length }
+		};
 		return { line: cursor.line, ch: offsetValue };
 	}
 
 	/** calculate the offset when restoring the cursor / selection */
-	calculateOffsets(modification: 'apply' | 'remove', prefix: string, suffix: string, customBase?: number) {
-		// usually, we want the offset to be prefix/suffix, but for some special cases we might want to provide a custom base
-		let pre = customBase ?? prefix.length;
-		let post = customBase ?? suffix.length; // we're shifting to the right by prefix
+	calculateOffsets(sel: Range, modification: 'apply' | 'remove', prefix: string, suffix: string) {
+		const selection = this.editor.getRange(sel.from, sel.to)
 
-		// TODO: fix this
-		// underscore, multiline: suffix = selects </u> as well, prefix, selects badly
-		// underscore, singleline: suffix = selects badly, prefix = selects correctly
-
-		if (modification === 'remove') {
-			pre = pre * -1;
-			post = post * -1;
+		const multiline = sel.from.line !== sel.to.line;
+		const includesMarkersStart = reg_marker_after.test(selection)
+		const includesMarkersEnd = reg_marker_before.test(selection);
+		const modifMultiplier = modification === 'remove' ? -1 : 1;
+		
+		let pre = 0;
+		let post = 0;
+		
+		// see rules for restoring cursor position in my obsidian note for this plugin
+		if (!includesMarkersStart && !includesMarkersEnd) {
+			pre = prefix.length * modifMultiplier;
+			post = multiline ? 0 : prefix.length * modifMultiplier;
+		} else {
+			if (includesMarkersStart && includesMarkersEnd) { // both markers included in selection
+				post = multiline ? -suffix.length : -(suffix.length + prefix.length)
+			} else if (includesMarkersStart && !includesMarkersEnd) { // only start (left) marker included in selection
+				post = multiline ? 0 : -prefix.length;
+			} else if (!includesMarkersStart && includesMarkersEnd) { // only end (right) marker included in selection
+				pre = prefix.length * modifMultiplier;
+				post = multiline ? -suffix.length : -(suffix.length + prefix.length)
+			}
 		}
+
+		// console.table({
+		// 	selection, pre,post,
+		// 	includesMarkersStart, includesMarkersEnd,
+		// 	multiline,
+		// 	bl: this.trimmedBeforeLength,
+		// 	al: this.trimmedAfterLength,
+		// });
+
 		pre -= this.trimmedBeforeLength;
 		post += this.trimmedAfterLength;
 		return { pre, post };
@@ -362,16 +387,17 @@ export class TextTransformer {
 	#modifySelection(original: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 		const sel2 = this.whitespacePretrim(original);
+		console.log("modify - original:", this.editor.getRange(original.from, original.to))
+		console.log("modify - posttrim:", this.editor.getRange(sel2.from, sel2.to))
 
 		const prefix = styleConfig[op].start;
 		const suffix = styleConfig[op].end;
 
 		// used when restoring previous cursor / selection position
 		// account for any whitespace we trimmed in cursor position
-		const offsets = this.calculateOffsets(modification, prefix, suffix);
+		const offsets = this.calculateOffsets(sel2, modification, prefix, suffix);
 
 		if (isSelection) {
-			const originalSel = this.editor.getRange(sel2.from, sel2.to);
 			this.editor.setSelection(smartSel.from, smartSel.to); // set to expanded selection
 			const selVal = this.editor.getSelection(); // get new content
 
@@ -381,20 +407,7 @@ export class TextTransformer {
 					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
 					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
 
-			console.log(modification, prefix, suffix, originalSel, selVal, newVal);
-
 			this.editor.replaceSelection(newVal); // replace the actual string in the editor
-			
-			// cleanly restore a 'remove' selection like |**bold**| to |bold|
-			if (originalSel === selVal && modification === 'remove') {
-				const offsets2 = this.calculateOffsets(modification, prefix, suffix, 0);
-				offsets2.post -= suffix.length;
-
-				// if the whole selection is on the same line, and we selected |**bold**|, shorten 'to' by both prefix and suffix
-				if (smartSel.from.line === smartSel.to.line) offsets2.post -= prefix.length;
-				Object.assign(offsets, offsets2);
-			}
-			console.log(sel2.from, sel2.to, offsets)
 
 			// where should the new selection be?
 			const restoreSel = {
