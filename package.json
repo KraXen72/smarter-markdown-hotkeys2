@@ -6,7 +6,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json"
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"test": "node --import tsx --test test/engine.test.ts"
 	},
 	"keywords": [],
 	"author": "",
@@ -17,7 +18,7 @@
 		"esbuild": "0.17.3",
 		"obsidian": "latest",
 		"tslib": "2.4.0",
-		"typescript": "4.7.4",
-		"vitest": "^2.1.2"
+		"tsx": "^4.19.1",
+		"typescript": "4.7.4"
 	}
 }

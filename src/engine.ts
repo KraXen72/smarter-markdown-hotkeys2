@@ -86,7 +86,7 @@ export class TextTransformer {
 		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + escapeRegExp(x)));
 		this.trimBeforeRegexes.splice(8, 0, /- \[\S\] /); // checked & custom checked checkboxes
 		this.trimBeforeRegexes.splice(6, 0, /> \[!\w+\] /); // callouts 
-		console.log(this.trimBeforeRegexes);
+		// console.log(this.trimBeforeRegexes);
 		// console.log(reg_before, reg_after)
 
 		this.trimAfterRegexes = trimAfter.map(x => new RegExp(escapeRegExp(x) + "$"));
@@ -116,7 +116,6 @@ export class TextTransformer {
 			);
 			return { from: {...from}, to: {...to} } satisfies Range as Range;
 		});
-		console.log(selections)
 
 		for (let i = 0; i < selections.length; i++) {
 			const sel = selections[i];
@@ -356,36 +355,24 @@ export class TextTransformer {
 	calculateOffsets(sel: Range, modification: 'apply' | 'remove', prefix: string, suffix: string) {
 		const selection = this.editor.getRange(sel.from, sel.to)
 
-		const multiline = sel.from.line !== sel.to.line;
 		const includesMarkersStart = this.startMarkerRegex.test(selection)
 		const includesMarkersEnd = this.endMarkerRegex.test(selection);
 		const modifMultiplier = modification === 'remove' ? -1 : 1;
-		
-		let pre = 0;
-		let post = 0;
+		const pm = prefix.length * modifMultiplier;
+		const sm = suffix.length * modifMultiplier;
 		
 		// see rules for restoring cursor position in my obsidian note for this plugin
-		if (!includesMarkersStart && !includesMarkersEnd) {
-			pre = prefix.length * modifMultiplier;
-			post = prefix.length * modifMultiplier;
-		} else {
-			if (includesMarkersStart && includesMarkersEnd) { // both markers included in selection
-				post = multiline ? -suffix.length : -(suffix.length + prefix.length)
-			} else if (includesMarkersStart && !includesMarkersEnd) { // only start (left) marker included in selection
-				post = multiline ? 0 : -prefix.length;
-			} else if (!includesMarkersStart && includesMarkersEnd) { // only end (right) marker included in selection
-				pre = prefix.length * modifMultiplier;
-				post = multiline ? -suffix.length : -(suffix.length + prefix.length)
-			}
-		}
-
-		console.table({
-			selection, pre,post,
-			includesMarkersStart, includesMarkersEnd,
-			multiline,
-			bl: this.trimmedBeforeLength,
-			al: this.trimmedAfterLength,
-		});
+		// i cannot believe i manage to make it this simple
+		let pre = includesMarkersStart ? 0 : pm;
+		let post = pm + (includesMarkersEnd ? sm : 0)
+		
+		// console.table({
+		// 	selection, pre,post,
+		// 	includesMarkersStart, includesMarkersEnd,
+		// 	multiline,
+		// 	btriml: this.trimmedBeforeLength,
+		// 	atriml: this.trimmedAfterLength,
+		// });
 
 		pre -= this.trimmedBeforeLength;
 		post += this.trimmedAfterLength;
@@ -403,6 +390,9 @@ export class TextTransformer {
 				.replace(new RegExp("^" + escapeRegExp(prefix)), "")
 				.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
 			
+		// do not apply styles to empty lines
+		if (modification === "apply" && selVal.trim().length === 0) newVal = selVal;
+
 		if (trim) newVal = trimmedBefore + newVal + trimmedAfter;
 		return newVal;
 	}
@@ -411,8 +401,6 @@ export class TextTransformer {
 	#modifySelection(original: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 		const sel2 = this.whitespacePretrim(original);
-		console.log("modify - original:", this.editor.getRange(original.from, original.to))
-		console.log("modify - posttrim:", this.editor.getRange(sel2.from, sel2.to))
 
 		const prefix = styleConfig[op].start;
 		const suffix = styleConfig[op].end;
@@ -438,7 +426,8 @@ export class TextTransformer {
 				to: this.offsetCursor(sel2.to, offsets.post),
 			}
 
-			this.editor.setSelection(restoreSel.from, restoreSel.to); 
+			this.editor.setSelection(restoreSel.from, restoreSel.to); // v fix live preview "adjusting" selection
+			setTimeout(() => this.editor.setSelection(restoreSel.from, restoreSel.to), 0)
 		} else {
 			const cursor = sel2.to; // save cursor
 			const selVal = this.editor.getRange(smartSel.from, smartSel.to)
