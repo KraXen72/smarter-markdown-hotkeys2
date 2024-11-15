@@ -52,7 +52,7 @@ const styleConfig: Record<ValidOperations, StyleConfig> = {
 
 // for now, you have to manually update these
 const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>" // markers
-const reg_char = `([a-zA-Z0-9]|${reg_marker_bare}|\\(|\\))`; // characters considered word
+const reg_char = `(\\([a-zA-Z0-9]+\\)|[a-zA-Z0-9]+|${reg_marker_bare})`; // characters considered word
 
 const reg_before = new RegExp(`${reg_char}*$`);
 const reg_after = new RegExp(`^${reg_char}*`);
@@ -403,7 +403,14 @@ export class TextTransformer {
 	}
 
 	/** either apply or remove a style for a given Range */
-	#modifySelection(original: Range, smartSel: Range, op: ValidOperations, modification: 'apply' | 'remove', isSelection: boolean) {
+	#modifySelection(
+		original: Range,
+		smartSel: Range, 
+		op: ValidOperations, 
+		modification: 'apply' | 'remove', 
+		isSelection: boolean,
+		debug_dryRun = false,
+	) {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 		const sel2 = this.whitespacePretrim(original);
 
@@ -413,6 +420,11 @@ export class TextTransformer {
 		// used when restoring previous cursor / selection position
 		// account for any whitespace we trimmed in cursor position
 		const offsets = this.calculateOffsets(sel2, modification, prefix, suffix);
+
+		if (debug_dryRun) {
+			this.editor.setSelection(smartSel.from, smartSel.to);
+			return;
+		}
 
 		if (isSelection) {
 			this.editor.setSelection(smartSel.from, smartSel.to); // set to expanded selection

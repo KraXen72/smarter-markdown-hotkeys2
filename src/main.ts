@@ -36,8 +36,8 @@ export default class SmarterHotkeys extends Plugin {
 		for (const _op of TextTransformOperations) {
 			const op = _op as ValidOperations;
 			this.addCommand({
-				id: 'smarter-' + op,
-				name: `Toggle Smarter ${op}`,
+				id: 'meh-' + op,
+				name: `Toggle ${op}`,
 				editorCallback: (editor: Editor) => {
 					this.engine.setEditor(editor);
 					this.engine.transformText(op);

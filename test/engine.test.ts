@@ -1,5 +1,5 @@
 import type { EditorPosition, Editor } from 'obsidian';
-import { test } from 'node:test';
+import { test, describe, it } from 'node:test';
 import assert from 'node:assert';
 import { TextTransformer } from '../src/engine';
 
@@ -66,36 +66,181 @@ class MockEditor {
 	getEditorContent() { return this.editorContent.join('\n') }
 }
 
-test('single line transformation', () => {
-	const mockEditor = new MockEditor(`hello world\nthis is a test\nmultiline`);
+const transformer = new TextTransformer();
 
-	const transformer = new TextTransformer();
+// Helper function to setup test with shared transformer
+function setupTest(content: string) {
+	const mockEditor = new MockEditor(content);
 	transformer.setEditor(mockEditor as unknown as Editor);
+	return mockEditor;
+}
+describe("simple transformations & restoration of selection", () => {
+	test('bold: single line transformation', () => {
+		const mockEditor = setupTest(`hello world\nthis is a test\nmultiline`);
+		mockEditor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 5 }); // "hello"
+		transformer.transformText('bold');
+	
+		const expectedText = `**hello** world\nthis is a test\nmultiline`;
+		const expectedSelection = { anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 7 } };
+	
+		assert.strictEqual(mockEditor.getEditorContent(), expectedText);
+		assert.deepStrictEqual(mockEditor.listSelections(), [expectedSelection])
+	});
+	
+	test('bold: multi line transformation', () => {
+		const mockEditor = setupTest(`hello world\nthis is a test\nmultiline`);
+		mockEditor.setSelection({ line: 0, ch: 1 }, { line: 1, ch: 4 }); // "ello world" & "this"
+		transformer.transformText('bold');
 
-	mockEditor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 5 }); // "hello"
-	transformer.transformText('bold');
+		const expectedText = `**hello world**\n**this** is a test\nmultiline`;
+		const expectedSelection = { anchor: { line: 0, ch: 3 }, head: { line: 1, ch: 6 } };
+	
+		assert.strictEqual(mockEditor.getEditorContent(), expectedText);
+		assert.deepStrictEqual(mockEditor.listSelections(), [expectedSelection])
+	});
+})
 
-	// Verify transformation result
-	const expectedText = `**hello** world\nthis is a test\nmultiline`;
-	const expectedSelection = { anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 7 } };
+// describe('TextTransformer', () => {
+// 	// Create a single transformer instance to be used across all tests
+// 	const transformer = new TextTransformer();
 
-	assert.strictEqual(mockEditor.getEditorContent(), expectedText);
-	assert.deepStrictEqual(mockEditor.listSelections(), [expectedSelection])
-});
+// 	// Helper function to setup test with shared transformer
+// 	function setupTest(content: string) {
+// 			const mockEditor = new MockEditor(content);
+// 			transformer.setEditor(mockEditor as unknown as Editor);
+// 			return mockEditor;
+// 	}
 
-test('multi line transformation', () => {
-	const mockEditor = new MockEditor(`hello world\nthis is a test\nmultiline`);
+// 	describe('Bare Cursor Operations', () => {
+// 			it('should handle cursor between style markers', () => {
+// 					const editor = setupTest("word **** text");
+// 					editor.setSelection({ line: 0, ch: 7 }, { line: 0, ch: 7 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "word  text");
+// 			});
 
-	const transformer = new TextTransformer();
-	transformer.setEditor(mockEditor as unknown as Editor);
+// 			it('should expand cursor inside word', () => {
+// 					const editor = setupTest("wo|rd");
+// 					editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "**word**");
+// 			});
 
-	mockEditor.setSelection({ line: 0, ch: 1 }, { line: 1, ch: 4 }); // "ello world" & "this"
-	transformer.transformText('bold');
+// 			it('should expand cursor at word boundary with space after', () => {
+// 					const editor = setupTest("word| another");
+// 					editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "**word** another");
+// 			});
 
-	// Verify transformation result
-	const expectedText = `**hello world**\n**this** is a test\nmultiline`;
-	const expectedSelection = { anchor: { line: 0, ch: 2 }, head: { line: 1, ch: 6 } };
+// 			it('should expand cursor at word boundary with space before', () => {
+// 					const editor = setupTest("word |another");
+// 					editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "word **another**");
+// 			});
 
-	assert.strictEqual(mockEditor.getEditorContent(), expectedText);
-	assert.deepStrictEqual(mockEditor.listSelections(), [expectedSelection])
-});
+// 			it('should create empty style when cursor between spaces', () => {
+// 					const editor = setupTest("word  ");
+// 					editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "word **|**");
+// 			});
+// 	});
+
+// 	describe('Selection Operations', () => {
+// 			it('should handle pure non-whitespace chunk selection', () => {
+// 					const editor = setupTest("hello there");
+// 					editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 7 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "he**llo th**ere");
+// 			});
+
+// 			it('should expand selection inside non-whitespace to word boundaries', () => {
+// 					const editor = setupTest("extraterrestrial");
+// 					editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 9 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "**extraterrestrial**");
+// 			});
+
+// 			it('should trim whitespace from selection ends', () => {
+// 					const editor = setupTest("   hello there   ");
+// 					editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 16 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "   **hello there**   ");
+// 			});
+
+// 			it('should keep pure whitespace selection unchanged', () => {
+// 					const editor = setupTest("word    word");
+// 					editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 8 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "word    word");
+// 			});
+// 	});
+
+// 	describe('Multi-line Operations', () => {
+// 			it('should handle multi-line selection with proper trimming', () => {
+// 					const editor = setupTest("first line\nsecond line\nthird line");
+// 					editor.setSelection(
+// 							{ line: 0, ch: 6 },
+// 							{ line: 2, ch: 5 }
+// 					);
+// 					transformer.transformText('bold');
+// 					assert.equal(
+// 							editor.getEditorContent(),
+// 							"first **line\nsecond line\nthird** line"
+// 					);
+// 			});
+
+// 			it('should handle bullet points and checkboxes', () => {
+// 					const editor = setupTest("- [ ] first item\n- [x] second item");
+// 					editor.setSelection(
+// 							{ line: 0, ch: 0 },
+// 							{ line: 1, ch: 18 }
+// 					);
+// 					transformer.transformText('bold');
+// 					assert.equal(
+// 							editor.getEditorContent(),
+// 							"- [ ] **first item**\n- [x] **second item**"
+// 					);
+// 			});
+// 	});
+
+// 	describe('Style Removal', () => {
+// 			it('should remove style when selection matches exactly', () => {
+// 					const editor = setupTest("**hello** there");
+// 					editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 8 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "hello there");
+// 			});
+
+// 			it('should handle nested styles', () => {
+// 					const editor = setupTest("**hello ==world==**");
+// 					editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 17 });
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "hello ==world==");
+// 			});
+// 	});
+
+// 	describe('Edge Cases', () => {
+// 			it('should handle empty lines', () => {
+// 					const editor = setupTest("\n\ntext\n\n");
+// 					editor.setSelection(
+// 							{ line: 0, ch: 0 },
+// 							{ line: 4, ch: 0 }
+// 					);
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "\n\n**text**\n\n");
+// 			});
+
+// 			it('should handle special markdown syntax', () => {
+// 					const editor = setupTest("> [!note] Some text");
+// 					editor.setSelection(
+// 							{ line: 0, ch: 0 },
+// 							{ line: 0, ch: 17 }
+// 					);
+// 					transformer.transformText('bold');
+// 					assert.equal(editor.getEditorContent(), "> [!note] **Some text**");
+// 			});
+// 	});
+// });
