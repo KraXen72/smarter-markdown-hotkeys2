@@ -70,10 +70,9 @@ class MockEditor {
 			this.selections[0] = { anchor: { ...anchor, ch: newAnchorCh }, head: { ...head, ch: newHeadCh } };
 		}
 	}
+	// FIXME
 	replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void {
 		if (!to) to = from;
-
-		// TODO fix, it's broken
 
 		// Get the lines before, within, and after the range
 		const before = this.editorContent.slice(0, from.line);
@@ -93,7 +92,7 @@ class MockEditor {
 			this.rebuildContent(before, [startLine + replacement + endLine], after);
 		}
 	}
-
+	
 	setCursor(pos: EditorPosition | number, ch?: number): void {
 		let cursor: EditorPosition;
 
