@@ -11,12 +11,19 @@ class MockEditor {
 		this.editorContent = initialText.split('\n');
 		if (initialSelections) this.selections = initialSelections;
 	}
+	private getLinesRange(from: EditorPosition, to: EditorPosition): string[] {
+		return this.editorContent.slice(from.line, to.line + 1);
+	}
+	private rebuildContent(before: string[], replacement: string[], after: string[]) {
+		this.editorContent = [...before, ...replacement, ...after];
+	}
 
 	listSelections() { return this.selections; }
 	setSelection(from: EditorPosition, to: EditorPosition) {
 		this.selections = [{ anchor: from, head: to }];
 	}
 	getLine(lineNo: number) {
+		console.log("getting line: ", lineNo, this.editorContent)
 		return this.editorContent[lineNo].toString();
 	}
 	getSelection() {
@@ -63,35 +70,30 @@ class MockEditor {
 			this.selections[0] = { anchor: { ...anchor, ch: newAnchorCh }, head: { ...head, ch: newHeadCh } };
 		}
 	}
-	replaceRange(
-		replacement: string,
-		from: EditorPosition,
-		to?: EditorPosition,
-		origin?: string
-	) {
-		if (!to) { to = from; }
+	replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void {
+		if (!to) to = from;
 
+		// TODO fix, it's broken
+
+		// Get the lines before, within, and after the range
+		const before = this.editorContent.slice(0, from.line);
+		const after = this.editorContent.slice(to.line + 1);
+		const rangeLines = this.getLinesRange(from, to);
+
+		// Single-line replacement
 		if (from.line === to.line) {
-			// Single-line replacement
-			const line = this.editorContent[from.line];
-			const before = line.slice(0, from.ch); // Text before the `from` position
-			const after = line.slice(to.ch); // Text after the `to` position
-			this.editorContent[from.line] = before + replacement + after;
+			const line = rangeLines[0];
+			const newLine =
+				line.slice(0, from.ch) + replacement + line.slice(to.ch);
+			this.rebuildContent(before, [newLine], after);
 		} else {
 			// Multi-line replacement
-			const startLine = this.editorContent[from.line].slice(0, from.ch); // Text before `from` in the start line
-			const endLine = this.editorContent[to.line].slice(to.ch); // Text after `to` in the end line
-
-			// Replace all lines between `from` and `to`
-			const newLines = [startLine + replacement + endLine];
-			this.editorContent.splice(from.line, to.line - from.line + 1, ...newLines);
-		}
-
-		// Optional: Handle origin if specific behaviors are needed
-		if (origin) {
-			console.log(`Replacement made with origin: ${origin}`);
+			const startLine = rangeLines[0].slice(0, from.ch);
+			const endLine = rangeLines[rangeLines.length - 1].slice(to.ch);
+			this.rebuildContent(before, [startLine + replacement + endLine], after);
 		}
 	}
+
 	setCursor(pos: EditorPosition | number, ch?: number): void {
 		let cursor: EditorPosition;
 
@@ -130,6 +132,7 @@ function setupTest(content: string) {
 	transformer.setEditor(mockEditor as unknown as Editor);
 	return mockEditor;
 }
+
 describe("simple transformations & restoration of selection", () => {
 	test('bold: single line transformation', () => {
 		const mockEditor = setupTest(`hello world\nthis is a test\nmultiline`);
@@ -156,147 +159,157 @@ describe("simple transformations & restoration of selection", () => {
 	});
 })
 
-describe('TextTransformer', () => {
-	describe('Bare Cursor Operations', () => {
-    it('should handle cursor between style markers', () => {
-        const editor = setupTest("with v1 **** monker");
-        editor.setSelection({ line: 0, ch: 10 }, { line: 0, ch: 10 });
-        transformer.transformText('bold');
-        assert.strictEqual(editor.getEditorContent(), "with v1  monker");
-        assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 8 }, head: { line: 0, ch: 8 } });
-    });
-
-    it('should expand cursor inside word', () => {
-        const editor = setupTest("word");
-        editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
-        transformer.transformText('bold');
-        assert.strictEqual(editor.getEditorContent(), "**word**");
-        assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } });
-    });
-
-    it('should expand cursor at word boundary with space after', () => {
-        const editor = setupTest("word another");
-        editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
-        transformer.transformText('bold');
-        assert.strictEqual(editor.getEditorContent(), "**word** another");
-        assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
-    });
-
-    it('should expand cursor at word boundary with space before', () => {
-        const editor = setupTest("word another");
-        editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
-        transformer.transformText('bold');
-        assert.strictEqual(editor.getEditorContent(), "word **another**");
-        assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
-    });
-
-    it('should create empty style when cursor between spaces', () => {
-        const editor = setupTest("word  ");
-        editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
-        transformer.transformText('bold');
-        assert.strictEqual(editor.getEditorContent(), "word **** ");
-        assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
-    });
-});
-
-
-	describe('Selection Operations', () => {
-		it('should handle a selection inside a pure non-whitespace chunk', () => {
-			const editor = setupTest("hellothere");
-			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 7 });
-			transformer.transformText('bold');
-			assert.strictEqual(editor.getEditorContent(), "**hellothere**");
-			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 9 } })
-		});
-
-		it('should properly highlight perfect selection (boundary-to-boundary)', () => {
-			const editor = setupTest("monker");
-			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 6 });
-			transformer.transformText('bold');
-			assert.strictEqual(editor.getEditorContent(), "**monker**");
-			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 8 } })
-		});
-
-		it('should trim whitespace from selection ends & properly set cursor', () => {
-			const editor = setupTest("   hello there  ");
-			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 16 });
-			transformer.transformText('bold');
-			assert.strictEqual(editor.getEditorContent(), "   **hello there**  ");
-			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 16 } })
-		});
-
-		// it('should keep pure whitespace selection unchanged', () => {
-		// 	const editor = setupTest("word    word");
-		// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
-		// 	transformer.transformText('bold');
-		// 	assert.strictEqual(editor.getEditorContent(), "word    word");
-		// 	assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 7 } })
-		// });
+describe('bare cursor operations', () => {
+	it('should handle cursor between style markers', () => {
+		const editor = setupTest("with v1 **** monker");
+		editor.setSelection({ line: 0, ch: 10 }, { line: 0, ch: 10 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "with v1  monker");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 8 }, head: { line: 0, ch: 8 } });
 	});
 
-	// describe('Multi-line Operations', () => {
-	// 	it('should handle multi-line selection with proper trimming', () => {
-	// 		const editor = setupTest("first line\nsecond line\nthird line");
-	// 		editor.setSelection(
-	// 			{ line: 0, ch: 6 },
-	// 			{ line: 2, ch: 5 }
-	// 		);
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(
-	// 			editor.getEditorContent(),
-	// 			"first **line\nsecond line\nthird** line"
-	// 		);
-	// 	});
+	it('should expand cursor inside word', () => {
+		const editor = setupTest("word");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } });
+	});
 
-	// 	it('should handle bullet points and checkboxes', () => {
-	// 		const editor = setupTest("- [ ] first item\n- [x] second item");
-	// 		editor.setSelection(
-	// 			{ line: 0, ch: 0 },
-	// 			{ line: 1, ch: 18 }
-	// 		);
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(
-	// 			editor.getEditorContent(),
-	// 			"- [ ] **first item**\n- [x] **second item**"
-	// 		);
-	// 	});
-	// });
+	it('should expand cursor at word boundary with space after', () => {
+		const editor = setupTest("word another");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word** another");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
 
-	// describe('Style Removal', () => {
-	// 	it('should remove style when selection matches exactly', () => {
-	// 		const editor = setupTest("**hello** there");
-	// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 8 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "hello there");
-	// 	});
+	it('should expand cursor at word boundary with space before', () => {
+		const editor = setupTest("word another");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "word **another**");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
+	});
 
-	// 	it('should handle nested styles', () => {
-	// 		const editor = setupTest("**hello ==world==**");
-	// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 17 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "hello ==world==");
-	// 	});
-	// });
+	it('should create empty style when cursor between spaces', () => {
+		const editor = setupTest("word  ");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "word **** ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
+	});
+});
 
-	// describe('Edge Cases', () => {
-	// 	it('should handle empty lines', () => {
-	// 		const editor = setupTest("\n\ntext\n\n");
-	// 		editor.setSelection(
-	// 			{ line: 0, ch: 0 },
-	// 			{ line: 4, ch: 0 }
-	// 		);
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "\n\n**text**\n\n");
-	// 	});
+describe('selection operations', () => {
+	it('should handle a selection inside a pure non-whitespace chunk', () => {
+		const editor = setupTest("hellothere");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 7 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**hellothere**");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 9 } })
+	});
 
-	// 	it('should handle special markdown syntax', () => {
-	// 		const editor = setupTest("> [!note] Some text");
-	// 		editor.setSelection(
-	// 			{ line: 0, ch: 0 },
-	// 			{ line: 0, ch: 17 }
-	// 		);
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "> [!note] **Some text**");
-	// 	});
+	it('should properly highlight perfect selection (boundary-to-boundary)', () => {
+		const editor = setupTest("monker");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 6 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**monker**");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 8 } })
+	});
+
+	it('should trim whitespace from selection ends & properly set cursor', () => {
+		const editor = setupTest("   hello there  ");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 16 });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "   **hello there**  ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 16 } })
+	});
+
+	// it('should keep pure whitespace selection unchanged', () => {
+	// 	const editor = setupTest("word    word");
+	// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
+	// 	transformer.transformText('bold');
+	// 	assert.strictEqual(editor.getEditorContent(), "word    word");
+	// 	assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 7 } })
 	// });
 });
+
+describe('Multi-line Operations', () => {
+	// it('should handle multi-line (sloppy) selection', () => {
+	// 	const editor = setupTest("firstTestML1 line\nsecond line\nthird line");
+	// 	editor.setSelection(
+	// 		{ line: 0, ch: 7 },
+	// 		{ line: 2, ch: 4 }
+	// 	);
+	// 	transformer.transformText('bold');
+	// 	assert.strictEqual(
+	// 		editor.getEditorContent(),
+	// 		"firstTestML1 **line\nsecond line\nthird** line"
+	// 	);
+	// });
+
+	// it('should handle multi-line (precise) selection', () => {
+	// 	const editor = setupTest("firstTestML2 line\nsecond line\nthird line");
+	// 	editor.setSelection(
+	// 		{ line: 0, ch: 6 },
+	// 		{ line: 2, ch: 5 }
+	// 	);
+	// 	transformer.transformText('bold');
+	// 	assert.strictEqual(
+	// 		editor.getEditorContent(),
+	// 		"firstTestML2 **line\nsecond line\nthird** line"
+	// 	);
+	// });
+
+	// it('everything selected: should handle bullet points and checkboxes', () => {
+	// 	const editor = setupTest("- [ ] first item\n- [x] second item");
+	// 	editor.setSelection(
+	// 		{ line: 0, ch: 0 },
+	// 		{ line: 1, ch: 17 }
+	// 	);
+	// 	transformer.transformText('bold');
+	// 	assert.strictEqual(
+	// 		editor.getEditorContent(),
+	// 		"- [ ] **first item**\n- [x] **second item**"
+	// 	);
+	// });
+});
+
+// describe('Style Removal', () => {
+// 	it('should remove style when selection matches exactly', () => {
+// 		const editor = setupTest("**hello** there");
+// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 8 });
+// 		transformer.transformText('bold');
+// 		assert.strictEqual(editor.getEditorContent(), "hello there");
+// 	});
+
+// 	it('should handle nested styles', () => {
+// 		const editor = setupTest("**hello ==world==**");
+// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 17 });
+// 		transformer.transformText('bold');
+// 		assert.strictEqual(editor.getEditorContent(), "hello ==world==");
+// 	});
+// });
+
+// describe('Edge Cases', () => {
+// 	it('should handle empty lines', () => {
+// 		const editor = setupTest("\n\ntext\n\n");
+// 		editor.setSelection(
+// 			{ line: 0, ch: 0 },
+// 			{ line: 4, ch: 0 }
+// 		);
+// 		transformer.transformText('bold');
+// 		assert.strictEqual(editor.getEditorContent(), "\n\n**text**\n\n");
+// 	});
+
+// 	it('should handle special markdown syntax', () => {
+// 		const editor = setupTest("> [!note] Some text");
+// 		editor.setSelection(
+// 			{ line: 0, ch: 0 },
+// 			{ line: 0, ch: 17 }
+// 		);
+// 		transformer.transformText('bold');
+// 		assert.strictEqual(editor.getEditorContent(), "> [!note] **Some text**");
+// 	});
+// });
