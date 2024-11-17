@@ -200,35 +200,39 @@ describe('TextTransformer', () => {
 });
 
 
-	// describe('Selection Operations', () => {
-	// 	it('should handle pure non-whitespace chunk selection', () => {
-	// 		const editor = setupTest("hello there");
-	// 		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 7 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "he**llo th**ere");
-	// 	});
+	describe('Selection Operations', () => {
+		it('should handle a selection inside a pure non-whitespace chunk', () => {
+			const editor = setupTest("hellothere");
+			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 7 });
+			transformer.transformText('bold');
+			assert.strictEqual(editor.getEditorContent(), "**hellothere**");
+			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 9 } })
+		});
 
-	// 	it('should expand selection inside non-whitespace to word boundaries', () => {
-	// 		const editor = setupTest("extraterrestrial");
-	// 		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 9 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "**extraterrestrial**");
-	// 	});
+		it('should properly highlight perfect selection (boundary-to-boundary)', () => {
+			const editor = setupTest("monker");
+			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 6 });
+			transformer.transformText('bold');
+			assert.strictEqual(editor.getEditorContent(), "**monker**");
+			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 8 } })
+		});
 
-	// 	it('should trim whitespace from selection ends', () => {
-	// 		const editor = setupTest("   hello there   ");
-	// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 16 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "   **hello there**   ");
-	// 	});
+		it('should trim whitespace from selection ends & properly set cursor', () => {
+			const editor = setupTest("   hello there  ");
+			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 16 });
+			transformer.transformText('bold');
+			assert.strictEqual(editor.getEditorContent(), "   **hello there**  ");
+			assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 16 } })
+		});
 
-	// 	it('should keep pure whitespace selection unchanged', () => {
-	// 		const editor = setupTest("word    word");
-	// 		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 8 });
-	// 		transformer.transformText('bold');
-	// 		assert.strictEqual(editor.getEditorContent(), "word    word");
-	// 	});
-	// });
+		// it('should keep pure whitespace selection unchanged', () => {
+		// 	const editor = setupTest("word    word");
+		// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
+		// 	transformer.transformText('bold');
+		// 	assert.strictEqual(editor.getEditorContent(), "word    word");
+		// 	assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 7 } })
+		// });
+	});
 
 	// describe('Multi-line Operations', () => {
 	// 	it('should handle multi-line selection with proper trimming', () => {
